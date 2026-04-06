@@ -1,0 +1,31 @@
+# requirements.txt
+# Core Django
+Django==4.2.7
+django-cors-headers==4.3.1
+django-filter==23.5
+djangorestframework==3.14.0
+djangorestframework-simplejwt==5.3.0
+
+# Database
+psycopg2-binary==2.9.9  # For PostgreSQL (optional, remove if using SQLite)
+
+# Image Processing
+Pillow==10.1.0
+
+# API Documentation
+drf-yasg==1.21.7
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# Optional but recommended for production
+gunicorn==21.2.0  # For production server
+whitenoise==6.6.0  # For serving static files
+
+# Testing (optional)
+pytest==7.4.3
+pytest-django==4.5.2
