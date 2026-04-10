@@ -7,7 +7,10 @@ from django.contrib.auth import get_user_model
 from .models import User, UserProfile, ActivityLog
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer, 
-    UpdateAccountInfoSerializer, UserProfileSerializer, ActivityLogSerializer
+    UpdateAccountInfoSerializer, UserProfileSerializer, ActivityLogSerializer, 
+    ChallengeRegistrationSerializer, 
+    ChallengeStatusUpdateSerializer,
+    FeePaymentSerializer
 )
 
 User = get_user_model()
@@ -145,3 +148,231 @@ class CheckSubscriptionView(APIView):
             'subscription_end_date': user.subscription_end_date,
             'subscription_active': user.is_subscribed and is_subscribed
         })
+
+
+class ChallengeRegistrationView(generics.RetrieveUpdateAPIView):
+    serializer_class = ChallengeRegistrationSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_object(self):
+        return self.request.user.profile
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        
+        # Auto-fill some fields from user data
+        if not instance.full_name:
+            instance.full_name = request.user.get_full_name() or request.user.username
+        
+        if not instance.contact_number and request.user.phone_number:
+            instance.contact_number = request.user.phone_number
+        
+        self.perform_update(serializer)
+        
+        ActivityLog.objects.create(
+            user=request.user,
+            action="Updated challenge registration",
+            details=f"Updated challenge information",
+            ip_address=self.get_client_ip(request)
+        )
+        
+        return Response(serializer.data)
+    
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+
+class SubmitChallengeRegistrationView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def post(self, request):
+        profile = request.user.profile
+        serializer = ChallengeRegistrationSerializer(profile, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            # Set challenge start date
+            if not profile.challenge_start_date:
+                profile.challenge_start_date = timezone.now()
+            
+            # Set participant signature
+            if not profile.participant_signature:
+                profile.participant_signature = f"Signed by {request.user.username}"
+                profile.participant_signature_date = timezone.now()
+            
+            serializer.save()
+            
+            ActivityLog.objects.create(
+                user=request.user,
+                action="Submitted challenge registration",
+                details="Challenge registration form submitted",
+                ip_address=self.get_client_ip(request)
+            )
+            
+            return Response({
+                'message': 'Challenge registration submitted successfully',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+
+class ChallengeStatusView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        profile = request.user.profile
+        return Response({
+            'challenge_status': profile.challenge_status,
+            'start_date': profile.challenge_start_date,
+            'end_date': profile.challenge_end_date,
+            'total_prize': profile.total_prize,
+            'registration_fee_paid': profile.registration_fee_paid,
+            'insurance_fee_paid': profile.insurance_fee_paid,
+            'challenge_completed_date': profile.challenge_completed_date,
+            'reward_claimed': profile.challenge_reward_claimed
+        })
+    
+    def post(self, request):
+        profile = request.user.profile
+        action = request.data.get('action')
+        
+        if action == 'start_challenge':
+            if profile.registration_fee_paid and profile.insurance_fee_paid:
+                profile.challenge_status = 'active'
+                profile.challenge_start_date = timezone.now()
+                profile.challenge_end_date = timezone.now() + timezone.timedelta(days=30)
+                profile.save()
+                
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action="Started challenge",
+                    details="Challenge started",
+                    ip_address=self.get_client_ip(request)
+                )
+                
+                return Response({'message': 'Challenge started successfully', 'status': 'active'})
+            else:
+                return Response({'error': 'Please pay all fees before starting the challenge'}, 
+                              status=status.HTTP_400_BAD_REQUEST)
+        
+        elif action == 'complete_challenge':
+            if profile.challenge_status == 'active':
+                profile.challenge_status = 'completed'
+                profile.challenge_completed_date = timezone.now()
+                profile.save()
+                
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action="Completed challenge",
+                    details="Challenge completed successfully",
+                    ip_address=self.get_client_ip(request)
+                )
+                
+                return Response({'message': 'Challenge completed! You can now claim your reward', 'status': 'completed'})
+        
+        return Response({'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+
+class AdminChallengeManagementView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get(self, request):
+        status_filter = request.query_params.get('status', None)
+        queryset = UserProfile.objects.all()
+        
+        if status_filter:
+            queryset = queryset.filter(challenge_status=status_filter)
+        
+        serializer = ChallengeRegistrationSerializer(queryset, many=True)
+        return Response(serializer.data)
+    
+    def put(self, request, user_id):
+        try:
+            profile = UserProfile.objects.get(user__id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = ChallengeStatusUpdateSerializer(data=request.data)
+        if serializer.is_valid():
+            profile.challenge_status = serializer.validated_data['challenge_status']
+            if 'admin_notes' in serializer.validated_data:
+                profile.admin_notes = serializer.validated_data['admin_notes']
+            if 'total_prize' in serializer.validated_data:
+                profile.total_prize = serializer.validated_data['total_prize']
+            
+            # If completing challenge, set completion date
+            if profile.challenge_status == 'completed' and not profile.challenge_completed_date:
+                profile.challenge_completed_date = timezone.now()
+            
+            profile.save()
+            
+            ActivityLog.objects.create(
+                user=request.user,
+                action="Admin updated challenge status",
+                details=f"Updated challenge status to {profile.challenge_status} for user {profile.user.email}",
+                ip_address=self.get_client_ip(request)
+            )
+            
+            return Response({'message': 'Challenge status updated successfully'})
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def post(self, request, user_id):
+        """Approve fee payment"""
+        try:
+            profile = UserProfile.objects.get(user__id=user_id)
+        except UserProfile.DoesNotExist:
+            return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = FeePaymentSerializer(data=request.data)
+        if serializer.is_valid():
+            fee_type = serializer.validated_data['fee_type']
+            
+            if fee_type == 'registration':
+                profile.registration_fee_paid = True
+                message = "Registration fee approved"
+            else:
+                profile.insurance_fee_paid = True
+                message = "Insurance fee approved"
+            
+            profile.save()
+            
+            ActivityLog.objects.create(
+                user=request.user,
+                action=f"Approved {fee_type} fee",
+                details=f"Approved {fee_type} fee for user {profile.user.email}",
+                ip_address=self.get_client_ip(request)
+            )
+            
+            return Response({'message': message})
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip

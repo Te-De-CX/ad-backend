@@ -69,3 +69,32 @@ class ActivityLogSerializer(serializers.ModelSerializer):
         model = ActivityLog
         fields = '__all__'
         read_only_fields = ['user', 'created_at']
+
+class ChallengeRegistrationSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source='user.email', read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+    
+    class Meta:
+        model = UserProfile
+        fields = [
+            'full_name', 'gender', 'age', 'monthly_income', 'marital_status',
+            'contact_number', 'hearing_status', 'housing_situation',
+            'preferred_payment_method', 'location', 'challenge_start_date',
+            'challenge_status', 'registration_fee_paid', 'insurance_fee_paid',
+            'participant_signature', 'participant_signature_date',
+            'total_prize', 'email', 'username'
+        ]
+    
+    def update(self, instance, validated_data):
+        # Handle user data if needed
+        return super().update(instance, validated_data)
+
+class ChallengeStatusUpdateSerializer(serializers.Serializer):
+    challenge_status = serializers.ChoiceField(choices=['pending', 'active', 'completed', 'failed'])
+    admin_notes = serializers.CharField(required=False, allow_blank=True)
+    total_prize = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+
+class FeePaymentSerializer(serializers.Serializer):
+    fee_type = serializers.ChoiceField(choices=['registration', 'insurance'])
+    payment_proof = serializers.ImageField(required=False)
+    payment_reference = serializers.CharField(max_length=100)
