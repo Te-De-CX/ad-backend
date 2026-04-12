@@ -6,7 +6,6 @@ class Task(models.Model):
     title = models.CharField(max_length=200)
     description = models.TextField()
 
-    # 🎥 Video upload
     video = models.FileField(upload_to='tasks/videos/', blank=True, null=True)
 
     # 🪙 Tier pricing
@@ -28,7 +27,7 @@ class Task(models.Model):
     def __str__(self):
         return self.title
 
-    # 🔥 HELPER METHODS (VERY IMPORTANT)
+    # 🔥 Always use these helpers instead of trusting frontend values
     def get_price(self, tier):
         return {
             "bronze": self.bronze_price,
@@ -72,48 +71,30 @@ class UserTask(models.Model):
         related_name='user_tasks'
     )
 
-    tier = models.CharField(
-        max_length=10,
-        choices=TIER_CHOICES,
-        default='bronze'   # 🔥 FIX FOR MIGRATION ERROR
-    )
+    tier = models.CharField(max_length=10, choices=TIER_CHOICES)
 
+    # 🔥 IMPORTANT: status controls retries instead of DB constraints
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
         default='pending_payment'
     )
 
-    payment_proof = models.ImageField(
-        upload_to='task_payments/',
-        blank=True,
-        null=True
-    )
+    payment_proof = models.ImageField(upload_to='task_payments/', blank=True, null=True)
+    completion_proof = models.ImageField(upload_to='task_completions/', blank=True, null=True)
 
-    completion_proof = models.ImageField(
-        upload_to='task_completions/',
-        blank=True,
-        null=True
-    )
-
-    reward_amount = models.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        default=0
-    )
+    reward_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     admin_notes = models.TextField(blank=True, null=True)
 
     started_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
-    class Meta:
-        # 🔥 FIX: allow multiple tiers per task per user
-        unique_together = ['user', 'task', 'tier']
+    # ❌ REMOVED unique_together
+    # Reason: it prevented retries and caused "blocked" issues
 
     def __str__(self):
         return f"{self.user.email} - {self.task.title} ({self.tier})"
 
-    # 🔥 auto-set reward
     def set_reward(self):
         self.reward_amount = self.task.get_reward(self.tier)
