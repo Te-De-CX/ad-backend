@@ -143,12 +143,13 @@ class UpdateAccountInfoView(generics.UpdateAPIView):
 class MyActivitiesView(generics.ListAPIView):
     serializer_class = ActivityLogSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_queryset(self):
-        # Check if this is for Swagger schema generation
         if getattr(self, 'swagger_fake_view', False):
             return ActivityLog.objects.none()
-        return ActivityLog.objects.filter(user=self.request.user)
+        return ActivityLog.objects.filter(
+            user=self.request.user
+        ).order_by('-created_at')[:20]
 
 class CheckSubscriptionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
