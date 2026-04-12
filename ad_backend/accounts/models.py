@@ -110,12 +110,16 @@ class UserProfile(models.Model):
     # Challenge specific fields
     challenge_start_date = models.DateTimeField(blank=True, null=True)
     challenge_end_date = models.DateTimeField(blank=True, null=True)
-    challenge_status = models.CharField(max_length=50, default='pending', choices=(
-        ('pending', 'Pending'),
-        ('active', 'Active'),
-        ('completed', 'Completed'),
-        ('failed', 'Failed'),
-    ))
+   challenge_status = models.CharField(
+    max_length=20,
+    choices=[
+        ('pending', 'Pending'),           # new user, no form yet
+        ('payment_pending', 'Payment Pending'),  # form submitted
+        ('under_review', 'Under Review'), # payment sent, admin reviewing
+        ('active', 'Active'),             # approved
+    ],
+    default='pending'
+)
     total_prize = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     registration_fee_paid = models.BooleanField(default=False)
     insurance_fee_paid = models.BooleanField(default=False)

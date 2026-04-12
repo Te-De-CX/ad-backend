@@ -81,21 +81,35 @@ class LogoutView(APIView):
 class UserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_object(self):
         return self.request.user
-    
+
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
+
+        # ← Handle status update — writes to UserProfile.challenge_status
+        new_status = request.data.get('status')
+        if new_status:
+            try:
+                instance.profile.challenge_status = new_status
+                instance.profile.save()
+            except Exception:
+                pass
+
         serializer = self.get_serializer(instance, data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
         self.perform_update(serializer)
-        
-        ActivityLog.objects.create(user=request.user, action="Updated profile", ip_address=self.get_client_ip())
-        
+
+        ActivityLog.objects.create(
+            user=request.user,
+            action="Updated profile",
+            ip_address=self.get_client_ip()
+        )
+
         return Response(serializer.data)
-    
+
     def get_client_ip(self):
         x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')
         if x_forwarded_for:
