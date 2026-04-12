@@ -11,51 +11,52 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = TaskSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def get_serializer_context(self):
+        return {'request': self.request}
+
     @action(detail=True, methods=['post'])
     def start_task(self, request, pk=None):
         task = self.get_object()
         tier = request.data.get('tier')
 
-        # ❌ Never trust frontend blindly
         if tier not in ['bronze', 'silver', 'gold']:
             return Response({'error': 'Invalid tier'}, status=400)
 
-        # 🔥 Prevent multiple active attempts
-        active_task = UserTask.objects.filter(
+        # Prevent duplicate active attempts
+        active = UserTask.objects.filter(
             user=request.user,
             task=task,
             status__in=['pending_payment', 'pending_review', 'in_progress']
         ).exists()
 
-        if active_task:
-            return Response({
-                'error': 'You already have an active attempt for this task'
-            }, status=400)
+        if active:
+            return Response(
+                {'error': 'You already have an active attempt for this task'},
+                status=400
+            )
 
-        # ✅ Create new attempt
+        # reward_amount auto-set by model save()
         user_task = UserTask.objects.create(
             user=request.user,
             task=task,
             tier=tier,
-            reward_amount=task.get_reward(tier),
             status='pending_payment'
         )
 
         ActivityLog.objects.create(
             user=request.user,
-            action=f"Started task {task.title} ({tier})"
+            action=f"Started task: {task.title} ({tier})"
         )
 
-        return Response({
-            'message': 'Proceed to payment',
-            'task_id': user_task.id
-        })
+        return Response(
+            UserTaskSerializer(user_task, context={'request': request}).data,
+            status=201
+        )
 
     @action(detail=True, methods=['post'])
     def upload_payment(self, request, pk=None):
         task = self.get_object()
 
-        # 🔥 Only allow correct step
         user_task = UserTask.objects.filter(
             user=request.user,
             task=task,
@@ -67,12 +68,11 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
 
         file = request.FILES.get('payment_proof')
 
-        # 🔐 Validate file
         if not file:
             return Response({'error': 'Payment proof is required'}, status=400)
 
-        if file.size > 2 * 1024 * 1024:
-            return Response({'error': 'File too large (max 2MB)'}, status=400)
+        if file.size > 5 * 1024 * 1024:
+            return Response({'error': 'File too large (max 5MB)'}, status=400)
 
         user_task.payment_proof = file
         user_task.status = 'pending_review'
@@ -80,7 +80,7 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
 
         ActivityLog.objects.create(
             user=request.user,
-            action=f"Uploaded payment for {task.title}"
+            action=f"Uploaded payment proof for: {task.title}"
         )
 
         return Response({'message': 'Payment submitted for review'})
@@ -89,7 +89,6 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
     def complete_task(self, request, pk=None):
         task = self.get_object()
 
-        # 🔥 Only allow completion when task is approved and in progress
         user_task = UserTask.objects.filter(
             user=request.user,
             task=task,
@@ -104,8 +103,8 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
         if not file:
             return Response({'error': 'Completion proof is required'}, status=400)
 
-        if file.size > 2 * 1024 * 1024:
-            return Response({'error': 'File too large (max 2MB)'}, status=400)
+        if file.size > 5 * 1024 * 1024:
+            return Response({'error': 'File too large (max 5MB)'}, status=400)
 
         user_task.completion_proof = file
         user_task.status = 'pending_review'
@@ -113,25 +112,23 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
 
         ActivityLog.objects.create(
             user=request.user,
-            action=f"Submitted completion for {task.title}"
+            action=f"Submitted completion proof for: {task.title}"
         )
 
         return Response({'message': 'Task submitted for approval'})
 
 
-# ===========================
-# 📌 LIST VIEWS (PUT HERE)
-# ===========================
-
 class MyTasksView(generics.ListAPIView):
     serializer_class = UserTaskSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    # 🔥 Shows ALL user attempts (history)
     def get_queryset(self):
         return UserTask.objects.filter(
             user=self.request.user
         ).order_by('-started_at')
+
+    def get_serializer_context(self):
+        return {'request': self.request}
 
 
 class AvailableTasksView(generics.ListAPIView):
@@ -139,7 +136,6 @@ class AvailableTasksView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        # 🔥 Hide only COMPLETED tasks
         completed_tasks = UserTask.objects.filter(
             user=self.request.user,
             status='completed'
@@ -147,8 +143,10 @@ class AvailableTasksView(generics.ListAPIView):
 
         tasks = Task.objects.filter(is_active=True)
 
-        # 🔐 Subscription control
         if not self.request.user.has_subscription():
             tasks = tasks.filter(requires_subscription=False)
 
         return tasks.exclude(id__in=completed_tasks)
+
+    def get_serializer_context(self):
+        return {'request': self.request}
