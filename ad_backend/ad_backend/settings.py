@@ -183,3 +183,6 @@ SWAGGER_SETTINGS = {
         'drf_yasg.inspectors.CoreAPICompatInspector',
     ],
 }
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
