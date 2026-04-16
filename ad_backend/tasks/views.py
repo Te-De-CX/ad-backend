@@ -22,7 +22,6 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
         if tier not in ['bronze', 'silver', 'gold']:
             return Response({'error': 'Invalid tier'}, status=400)
 
-        # Prevent duplicate active attempts
         active = UserTask.objects.filter(
             user=request.user,
             task=task,
@@ -35,7 +34,6 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
                 status=400
             )
 
-        # reward_amount auto-set by model save()
         user_task = UserTask.objects.create(
             user=request.user,
             task=task,
@@ -53,24 +51,24 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
             status=201
         )
 
-    @action(detail=True, methods=['post'])
-    def upload_payment(self, request, pk=None):
-        task = self.get_object()
-
-        user_task = UserTask.objects.filter(
-            user=request.user,
-            task=task,
-            status='pending_payment'
-        ).last()
-
-        if not user_task:
-            return Response({'error': 'No pending payment found'}, status=400)
+    # Uses UserTask.id — detail=False with url_path capturing user_task_id
+    @action(detail=False, methods=['post'], url_path='upload-payment/(?P<user_task_id>[0-9]+)')
+    def upload_payment(self, request, user_task_id=None):
+        try:
+            user_task = UserTask.objects.get(
+                id=user_task_id,
+                user=request.user,
+                status='pending_payment'
+            )
+        except UserTask.DoesNotExist:
+            return Response(
+                {'error': 'No pending payment found for this task'},
+                status=400
+            )
 
         file = request.FILES.get('payment_proof')
-
         if not file:
             return Response({'error': 'Payment proof is required'}, status=400)
-
         if file.size > 5 * 1024 * 1024:
             return Response({'error': 'File too large (max 5MB)'}, status=400)
 
@@ -80,29 +78,31 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
 
         ActivityLog.objects.create(
             user=request.user,
-            action=f"Uploaded payment proof for: {task.title}"
+            action=f"Uploaded payment proof for: {user_task.task.title}"
         )
 
-        return Response({'message': 'Payment submitted for review'})
+        return Response(
+            UserTaskSerializer(user_task, context={'request': request}).data
+        )
 
-    @action(detail=True, methods=['post'])
-    def complete_task(self, request, pk=None):
-        task = self.get_object()
-
-        user_task = UserTask.objects.filter(
-            user=request.user,
-            task=task,
-            status='in_progress'
-        ).last()
-
-        if not user_task:
-            return Response({'error': 'No active task in progress'}, status=400)
+    # Uses UserTask.id — detail=False with url_path capturing user_task_id
+    @action(detail=False, methods=['post'], url_path='complete-task/(?P<user_task_id>[0-9]+)')
+    def complete_task(self, request, user_task_id=None):
+        try:
+            user_task = UserTask.objects.get(
+                id=user_task_id,
+                user=request.user,
+                status='in_progress'
+            )
+        except UserTask.DoesNotExist:
+            return Response(
+                {'error': 'No in-progress task found with this ID'},
+                status=400
+            )
 
         file = request.FILES.get('completion_proof')
-
         if not file:
             return Response({'error': 'Completion proof is required'}, status=400)
-
         if file.size > 5 * 1024 * 1024:
             return Response({'error': 'File too large (max 5MB)'}, status=400)
 
@@ -112,10 +112,12 @@ class TaskViewSet(viewsets.ReadOnlyModelViewSet):
 
         ActivityLog.objects.create(
             user=request.user,
-            action=f"Submitted completion proof for: {task.title}"
+            action=f"Submitted completion proof for: {user_task.task.title}"
         )
 
-        return Response({'message': 'Task submitted for approval'})
+        return Response(
+            UserTaskSerializer(user_task, context={'request': request}).data
+        )
 
 
 class MyTasksView(generics.ListAPIView):
@@ -125,7 +127,7 @@ class MyTasksView(generics.ListAPIView):
     def get_queryset(self):
         return UserTask.objects.filter(
             user=self.request.user
-        ).order_by('-started_at')
+        ).select_related('task').order_by('-started_at')
 
     def get_serializer_context(self):
         return {'request': self.request}

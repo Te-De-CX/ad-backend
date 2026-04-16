@@ -5,7 +5,8 @@ from .views import (
     RegisterView, LoginView, LogoutView, UserProfileView,
     UpdateAccountInfoView, MyActivitiesView, CheckSubscriptionView,
     ChallengeRegistrationView, SubmitChallengeRegistrationView,
-    ChallengeStatusView, AdminChallengeManagementView
+    ChallengeStatusView, AdminChallengeManagementView,ChangePasswordView,
+     delete_activity,
 )
 
 urlpatterns = [
@@ -17,6 +18,7 @@ urlpatterns = [
     path('update-account/', UpdateAccountInfoView.as_view(), name='update_account'),
     path('my-activities/', MyActivitiesView.as_view(), name='my_activities'),
     path('check-subscription/', CheckSubscriptionView.as_view(), name='check_subscription'),
+    path('change-password/', ChangePasswordView.as_view(), name='change_password'), 
     
     # Challenge Registration URLs
     path('challenge/registration/', ChallengeRegistrationView.as_view(), name='challenge_registration'),
@@ -24,4 +26,5 @@ urlpatterns = [
     path('challenge/status/', ChallengeStatusView.as_view(), name='challenge_status'),
     path('admin/challenges/', AdminChallengeManagementView.as_view(), name='admin_challenges'),
     path('admin/challenges/<int:user_id>/', AdminChallengeManagementView.as_view(), name='admin_challenge_detail'),
+    path('activities/<int:pk>/delete/', delete_activity, name='delete_activity'),
 ]

@@ -1,10 +1,13 @@
 # accounts/views.py
+from django.utils import timezone  
 from rest_framework import status, generics, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.decorators import api_view, permission_classes
 from django.contrib.auth import get_user_model
 from .models import User, UserProfile, ActivityLog
+from django.db.models import Q
 from .serializers import (
     UserSerializer, RegisterSerializer, LoginSerializer, 
     UpdateAccountInfoSerializer, UserProfileSerializer, ActivityLogSerializer, 
@@ -12,6 +15,8 @@ from .serializers import (
     ChallengeStatusUpdateSerializer,
     FeePaymentSerializer
 )
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 
 User = get_user_model()
 
@@ -78,6 +83,7 @@ class LogoutView(APIView):
             ip = request.META.get('REMOTE_ADDR')
         return ip
 
+        
 class UserProfileView(generics.RetrieveUpdateAPIView):
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -138,7 +144,7 @@ class UpdateAccountInfoView(generics.UpdateAPIView):
             ip = self.request.META.get('REMOTE_ADDR')
         return ip
 
-# In accounts/views.py, update MyActivitiesView:
+
 
 class MyActivitiesView(generics.ListAPIView):
     serializer_class = ActivityLogSerializer
@@ -147,9 +153,20 @@ class MyActivitiesView(generics.ListAPIView):
     def get_queryset(self):
         if getattr(self, 'swagger_fake_view', False):
             return ActivityLog.objects.none()
-        return ActivityLog.objects.filter(
+        
+        queryset = ActivityLog.objects.filter(
             user=self.request.user
-        ).order_by('-created_at')[:20]
+        ).order_by('-created_at')
+        
+        # Support ?search= query param
+        search = self.request.query_params.get('search', None)
+        if search:
+            queryset = queryset.filter(
+                Q(action__icontains=search) | Q(details__icontains=search)
+            )
+            return queryset  # No slice when searching
+        
+        return queryset[:20]  # Default: last 20
 
 class CheckSubscriptionView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -391,3 +408,59 @@ class AdminChallengeManagementView(APIView):
         else:
             ip = request.META.get('REMOTE_ADDR')
         return ip
+
+class ChangePasswordView(APIView):  # ← Remove the indentation (should be at column 0)
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        old_password = request.data.get('old_password')
+        new_password = request.data.get('new_password')
+        confirm_password = request.data.get('confirm_password')
+
+        if not user.check_password(old_password):
+            return Response(
+                {'error': 'Current password is incorrect'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if new_password != confirm_password:
+            return Response(
+                {'error': 'New passwords do not match'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            validate_password(new_password, user)
+        except ValidationError as e:
+            return Response({'error': list(e.messages)}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+
+        ActivityLog.objects.create(
+            user=user,
+            action="Changed password",
+            ip_address=request.META.get('REMOTE_ADDR')
+        )
+        return Response({'message': 'Password changed successfully'})
+
+@api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated])
+def delete_activity(request, pk):
+    """Delete a specific activity log entry for the authenticated user"""
+    try:
+        activity = ActivityLog.objects.get(id=pk, user=request.user)
+        activity.delete()
+        return Response(
+            {'message': 'Activity deleted successfully'}, 
+            status=status.HTTP_200_OK
+        )
+    except ActivityLog.DoesNotExist:
+        return Response(
+            {'error': 'Activity not found or you do not have permission to delete it'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {'error': str(e)}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )        
