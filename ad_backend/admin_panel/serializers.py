@@ -4,6 +4,27 @@ from accounts.models import User
 from investments.models import Investment, Transaction
 from tasks.models import Task
 from .models import AdminAction, SystemSettings
+from accounts.models import UserProfile, User
+
+class UserBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'username', 'phone_number']
+
+class ChallengeParticipantSerializer(serializers.ModelSerializer):
+    user = UserBasicSerializer(read_only=True)
+    
+    class Meta:
+        model = UserProfile
+        fields = [
+            'id', 'user', 'full_name', 'gender', 'age', 'monthly_income',
+            'marital_status', 'contact_number', 'hearing_status', 'housing_situation',
+            'preferred_payment_method', 'location', 'challenge_status',
+            'registration_fee_paid', 'insurance_fee_paid', 'total_prize',
+            'challenge_start_date', 'challenge_end_date', 'participant_signature',
+            'participant_signature_date', 'ceo_signature', 'ceo_signature_date',
+            'challenge_completed_date', 'challenge_reward_claimed', 'admin_notes'
+        ]
 
 class UserManagementSerializer(serializers.ModelSerializer):
     class Meta:

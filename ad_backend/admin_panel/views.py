@@ -4,14 +4,14 @@ from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db.models import Sum, Count, Q
 from django.utils import timezone
-from accounts.models import User, ActivityLog
+from accounts.models import User, ActivityLog, UserProfile
 from investments.models import Investment, Transaction
 from tasks.models import Task, UserTask
 from .models import AdminAction, SystemSettings
 from .serializers import (
     UserManagementSerializer, InvestmentManagementSerializer, 
     TaskManagementSerializer, TransactionSerializer, AdminActionSerializer,
-    SystemSettingsSerializer, DashboardStatsSerializer
+    SystemSettingsSerializer, DashboardStatsSerializer, ChallengeParticipantSerializer
 )
 from .permissions import IsAdminUser
 
@@ -192,3 +192,88 @@ class SystemSettingsViewSet(viewsets.ModelViewSet):
             return Response({'key': setting.key, 'value': setting.value})
         except SystemSettings.DoesNotExist:
             return Response({'error': 'Setting not found'}, status=status.HTTP_404_NOT_FOUND)
+
+
+class AdminChallengeViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for managing challenge participants
+    """
+    permission_classes = [IsAdminUser]
+    serializer_class = ChallengeParticipantSerializer
+    
+    def get_queryset(self):
+        """Return all user profiles that have challenge registrations"""
+        return UserProfile.objects.exclude(
+            challenge_status='pending'
+        ).exclude(
+            full_name__isnull=True
+        ).exclude(
+            full_name=''
+        ).order_by('-challenge_start_date')
+    
+    @action(detail=True, methods=['post'])
+    def approve_fee(self, request, pk=None):
+        """Approve registration or insurance fee"""
+        try:
+            profile = UserProfile.objects.get(user__id=pk)
+            fee_type = request.data.get('fee_type')
+            
+            if fee_type == 'registration':
+                profile.registration_fee_paid = True
+                message = "Registration fee approved"
+            elif fee_type == 'insurance':
+                profile.insurance_fee_paid = True
+                message = "Insurance fee approved"
+            else:
+                return Response(
+                    {'error': 'Invalid fee type'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            profile.save()
+            
+            return Response({
+                'message': message,
+                'status': 'success'
+            })
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': 'User not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=True, methods=['put'])
+    def update_status(self, request, pk=None):
+        """Update challenge status and prize"""
+        try:
+            profile = UserProfile.objects.get(user__id=pk)
+            new_status = request.data.get('challenge_status')
+            total_prize = request.data.get('total_prize')
+            
+            if new_status:
+                profile.challenge_status = new_status
+                
+                if new_status == 'active' and not profile.challenge_start_date:
+                    profile.challenge_start_date = timezone.now()
+                    profile.challenge_end_date = timezone.now() + timezone.timedelta(days=60)
+                
+                if new_status == 'completed':
+                    profile.challenge_completed_date = timezone.now()
+                
+                if new_status == 'failed':
+                    profile.challenge_status = 'failed'
+            
+            if total_prize:
+                profile.total_prize = total_prize
+            
+            profile.save()
+            
+            return Response({
+                'message': f'Challenge status updated to {new_status}',
+                'challenge_status': profile.challenge_status
+            })
+        except UserProfile.DoesNotExist:
+            return Response(
+                {'error': 'User not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
