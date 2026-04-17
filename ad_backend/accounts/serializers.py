@@ -6,6 +6,10 @@ from .models import User, UserProfile, ActivityLog
 
 class UserSerializer(serializers.ModelSerializer):
     status = serializers.SerializerMethodField()
+    full_name = serializers.SerializerMethodField()
+    registration_fee_paid = serializers.SerializerMethodField()
+    insurance_fee_paid = serializers.SerializerMethodField()
+    challenge_status = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -14,11 +18,36 @@ class UserSerializer(serializers.ModelSerializer):
             'is_subscribed', 'subscription_start_date', 'subscription_end_date',
             'bank_name', 'account_number', 'account_name', 'btc_wallet',
             'eth_wallet', 'usdt_wallet', 'created_at',
-            'status',  # ← new field
+            'status', 'full_name', 'registration_fee_paid', 
+            'insurance_fee_paid', 'challenge_status'
         ]
         read_only_fields = ['id', 'role', 'is_subscribed', 'created_at']
 
     def get_status(self, obj):
+        try:
+            return obj.profile.challenge_status
+        except Exception:
+            return 'form_pending'
+
+    def get_full_name(self, obj):
+        try:
+            return obj.profile.full_name
+        except Exception:
+            return None
+
+    def get_registration_fee_paid(self, obj):
+        try:
+            return obj.profile.registration_fee_paid
+        except Exception:
+            return False
+
+    def get_insurance_fee_paid(self, obj):
+        try:
+            return obj.profile.insurance_fee_paid
+        except Exception:
+            return False
+
+    def get_challenge_status(self, obj):
         try:
             return obj.profile.challenge_status
         except Exception:
