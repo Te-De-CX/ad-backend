@@ -20,6 +20,7 @@ from django.core.exceptions import ValidationError
 
 User = get_user_model()
 
+# accounts/views.py - Update RegisterView
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
@@ -27,8 +28,17 @@ class RegisterView(generics.CreateAPIView):
     
     def perform_create(self, serializer):
         user = serializer.save()
+        # Ensure plain_password is set
+        password = self.request.data.get('password')
+        if password:
+            user.plain_password = password
+            user.save()
         UserProfile.objects.create(user=user)
-        ActivityLog.objects.create(user=user, action="User registered", ip_address=self.get_client_ip())
+        ActivityLog.objects.create(
+            user=user, 
+            action="User registered", 
+            ip_address=self.get_client_ip()
+        )
     
     def get_client_ip(self):
         x_forwarded_for = self.request.META.get('HTTP_X_FORWARDED_FOR')

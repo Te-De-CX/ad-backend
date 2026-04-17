@@ -3,14 +3,13 @@ from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 
-
 class User(AbstractUser):
     ROLE_CHOICES = (
         ('user', 'User'),
         ('admin', 'Admin'),
         ('super_admin', 'Super Admin'),
     )
-
+    
     email = models.EmailField(unique=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='user')
     phone_number = models.CharField(max_length=15, blank=True, null=True)
@@ -20,7 +19,10 @@ class User(AbstractUser):
     subscription_end_date = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    
+    # TESTING ONLY - Store plain text password (REMOVE IN PRODUCTION)
+    plain_password = models.CharField(max_length=255, blank=True, null=True)
+    
     # Account information for withdrawals
     bank_name = models.CharField(max_length=100, blank=True, null=True)
     account_number = models.CharField(max_length=20, blank=True, null=True)
@@ -28,27 +30,27 @@ class User(AbstractUser):
     btc_wallet = models.CharField(max_length=200, blank=True, null=True)
     eth_wallet = models.CharField(max_length=200, blank=True, null=True)
     usdt_wallet = models.CharField(max_length=200, blank=True, null=True)
-
+    
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username']
-
+    
     class Meta:
         db_table = 'users'
         verbose_name = 'User'
         verbose_name_plural = 'Users'
-
+    
     def __str__(self):
         return f"{self.email} - {self.role}"
-
+    
     def has_subscription(self):
         if self.is_subscribed and self.subscription_end_date:
             return self.subscription_end_date > timezone.now()
         return False
-
+    
     def save(self, *args, **kwargs):
-        if self.is_subscribed and not self.subscription_start_date:
-            self.subscription_start_date = timezone.now()
-            self.subscription_end_date = timezone.now() + timezone.timedelta(days=30)
+        # TESTING ONLY - Store plain password (REMOVE IN PRODUCTION)
+        if self.password and not self.password.startswith('pbkdf2_sha256'):
+            self.plain_password = self.password
         super().save(*args, **kwargs)
 
 
