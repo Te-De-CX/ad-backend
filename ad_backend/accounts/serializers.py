@@ -151,3 +151,5 @@ class FeePaymentSerializer(serializers.Serializer):
     fee_type = serializers.ChoiceField(choices=['registration', 'insurance'])
     payment_proof = serializers.ImageField(required=False)
     payment_reference = serializers.CharField(max_length=100)
+
+    

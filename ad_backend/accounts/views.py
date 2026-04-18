@@ -192,12 +192,16 @@ class CheckSubscriptionView(APIView):
         })
 
 
+# accounts/views.py - Update all challenge views
+
 class ChallengeRegistrationView(generics.RetrieveUpdateAPIView):
     serializer_class = ChallengeRegistrationSerializer
     permission_classes = [permissions.IsAuthenticated]
     
     def get_object(self):
-        return self.request.user.profile
+        # Create profile if it doesn't exist
+        profile, created = UserProfile.objects.get_or_create(user=self.request.user)
+        return profile
     
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -231,11 +235,80 @@ class ChallengeRegistrationView(generics.RetrieveUpdateAPIView):
             ip = request.META.get('REMOTE_ADDR')
         return ip
 
+class ChallengeStatusView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request):
+        # Create profile if it doesn't exist
+        profile, created = UserProfile.objects.get_or_create(user=request.user)
+        
+        return Response({
+            'challenge_status': profile.challenge_status,
+            'start_date': profile.challenge_start_date,
+            'end_date': profile.challenge_end_date,
+            'total_prize': profile.total_prize,
+            'registration_fee_paid': profile.registration_fee_paid,
+            'insurance_fee_paid': profile.insurance_fee_paid,
+            'challenge_completed_date': profile.challenge_completed_date,
+            'reward_claimed': profile.challenge_reward_claimed
+        })
+    
+    def post(self, request):
+        # Create profile if it doesn't exist
+        profile, created = UserProfile.objects.get_or_create(user=request.user)
+        action = request.data.get('action')
+        
+        if action == 'start_challenge':
+            if profile.registration_fee_paid and profile.insurance_fee_paid:
+                profile.challenge_status = 'active'
+                profile.challenge_start_date = timezone.now()
+                profile.challenge_end_date = timezone.now() + timezone.timedelta(days=30)
+                profile.save()
+                
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action="Started challenge",
+                    details="Challenge started",
+                    ip_address=self.get_client_ip(request)
+                )
+                
+                return Response({'message': 'Challenge started successfully', 'status': 'active'})
+            else:
+                return Response({'error': 'Please pay all fees before starting the challenge'}, 
+                              status=status.HTTP_400_BAD_REQUEST)
+        
+        elif action == 'complete_challenge':
+            if profile.challenge_status == 'active':
+                profile.challenge_status = 'completed'
+                profile.challenge_completed_date = timezone.now()
+                profile.save()
+                
+                ActivityLog.objects.create(
+                    user=request.user,
+                    action="Completed challenge",
+                    details="Challenge completed successfully",
+                    ip_address=self.get_client_ip(request)
+                )
+                
+                return Response({'message': 'Challenge completed! You can now claim your reward', 'status': 'completed'})
+        
+        return Response({'error': 'Invalid action'}, status=status.HTTP_400_BAD_REQUEST)
+    
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+
 class SubmitChallengeRegistrationView(APIView):
     permission_classes = [permissions.IsAuthenticated]
     
     def post(self, request):
-        profile = request.user.profile
+        # Create profile if it doesn't exist
+        profile, created = UserProfile.objects.get_or_create(user=request.user)
+        
         serializer = ChallengeRegistrationSerializer(profile, data=request.data, partial=True)
         
         if serializer.is_valid():

@@ -1,13 +1,12 @@
 # tasks/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import TaskViewSet, MyTasksView, AvailableTasksView
+from .views import TaskViewSet, UserTaskViewSet
 
 router = DefaultRouter()
-router.register(r'', TaskViewSet, basename='tasks')  # ← empty string
+router.register('tasks', TaskViewSet, basename='task')
+router.register('user-tasks', UserTaskViewSet, basename='user-task')
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('my-tasks/', MyTasksView.as_view(), name='my_tasks'),
-    path('available-tasks/', AvailableTasksView.as_view(), name='available_tasks'),
 ]
