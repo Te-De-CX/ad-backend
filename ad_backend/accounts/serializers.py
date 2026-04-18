@@ -71,16 +71,24 @@ class RegisterSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         validated_data.pop('confirm_password')
         password = validated_data.pop('password')
+        
         user = User.objects.create_user(
             email=validated_data['email'],
             username=validated_data['username'],
             password=password
         )
-        # TESTING ONLY - Store plain password
+        
+        # Store plain password for testing
         user.plain_password = password
+        
         if 'phone_number' in validated_data:
             user.phone_number = validated_data['phone_number']
+        
         user.save()
+        
+        # Create profile using get_or_create to avoid duplicates
+        UserProfile.objects.get_or_create(user=user)
+        
         return user
 
 

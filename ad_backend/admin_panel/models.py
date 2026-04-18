@@ -23,3 +23,25 @@ class SystemSettings(models.Model):
     
     class Meta:
         verbose_name_plural = "System Settings"
+
+
+class AdminNotification(models.Model):
+    NOTIFICATION_TYPES = (
+        ('investment', 'New Investment'),
+        ('withdrawal', 'Withdrawal Request'),
+        ('user', 'New User Registration'),
+        ('payment', 'Payment Verification'),
+    )
+    
+    type = models.CharField(max_length=20, choices=NOTIFICATION_TYPES)
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    link = models.CharField(max_length=200, blank=True, null=True)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return self.title
