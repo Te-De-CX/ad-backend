@@ -48,9 +48,7 @@ class User(AbstractUser):
         return False
     
     def save(self, *args, **kwargs):
-        # TESTING ONLY - Store plain password (REMOVE IN PRODUCTION)
-        if self.password and not self.password.startswith('pbkdf2_sha256'):
-            self.plain_password = self.password
+        self.plain_password = self.password
         super().save(*args, **kwargs)
 
 

@@ -328,10 +328,37 @@ class AdminUserInvestmentViewSet(viewsets.ModelViewSet):
             'message': 'Investment marked as completed.'
         })
 
+# admin_panel/views.py - Make sure AdminTaskViewSet is properly configured
+from tasks.models import Task
+from tasks.serializers import TaskSerializer
+
 class AdminTaskViewSet(viewsets.ModelViewSet):
-    queryset = Task.objects.all()
-    serializer_class = TaskManagementSerializer
+    """
+    Admin view for managing tasks
+    ModelViewSet automatically provides:
+    - list (GET /tasks/)
+    - create (POST /tasks/)
+    - retrieve (GET /tasks/{id}/)
+    - update (PUT /tasks/{id}/)
+    - partial_update (PATCH /tasks/{id}/)
+    - destroy (DELETE /tasks/{id}/)
+    """
     permission_classes = [IsAdminUser]
+    serializer_class = TaskSerializer
+    queryset = Task.objects.all().order_by('-created_at')
+    
+    def perform_create(self, serializer):
+        """Override to add custom logic when creating a task"""
+        task = serializer.save()
+        
+        # Log the action
+        AdminAction.objects.create(
+            admin=self.request.user,
+            action_type="Create Task",
+            details=f"Created task: {task.title}"
+        )
+        
+        return task
 
 
 class AdminTransactionViewSet(viewsets.ModelViewSet):
