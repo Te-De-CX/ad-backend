@@ -1,7 +1,8 @@
+# tasks/admin.py
 from django.contrib import admin
 from django.utils.html import format_html
 from django.utils import timezone
-from .models import Task, UserTask
+from .models import Task, UserTaskInvestment  # Changed from UserTask
 from investments.models import Transaction
 import uuid
 
@@ -40,70 +41,49 @@ class TaskAdmin(admin.ModelAdmin):
     video_preview.short_description = 'Preview'
 
 
-@admin.register(UserTask)
-class UserTaskAdmin(admin.ModelAdmin):
+@admin.register(UserTaskInvestment)  # Changed from UserTask
+class UserTaskInvestmentAdmin(admin.ModelAdmin):  # Changed class name
     list_display = (
         'user', 'task', 'tier', 'status',
-        'reward_amount', 'payment_proof_preview',
-        'started_at', 'completed_at'
+        'amount', 'reward_amount',
+        'start_date', 'end_date', 'completed_date'
     )
     list_filter = ('status', 'tier', 'task')
     search_fields = ('user__email', 'task__title')
-    ordering = ('-started_at',)
-    readonly_fields = ('started_at', 'reward_amount', 'payment_proof_preview', 'completion_proof_preview')
+    ordering = ('-created_at',)
+    readonly_fields = ('start_date', 'end_date', 'completed_date', 'created_at', 'updated_at')
 
-    actions = ['approve_payment', 'approve_completion', 'reject_tasks']
+    actions = ['verify_investments', 'mark_completed', 'reject_investments']
 
-    def payment_proof_preview(self, obj):
-        if obj.payment_proof:
-            return format_html(
-                '<a href="{}" target="_blank">'
-                '<img src="{}" width="80" height="60" style="object-fit:cover;border-radius:4px"/>'
-                '</a>',
-                obj.payment_proof.url,
-                obj.payment_proof.url,
-            )
-        return '—'
-    payment_proof_preview.short_description = 'Payment Proof'
+    def verify_investments(self, request, queryset):
+        """Verify pending task investments"""
+        updated = 0
+        for investment in queryset.filter(status='pending'):
+            investment.status = 'active'
+            investment.start_date = timezone.now()
+            investment.end_date = timezone.now() + timezone.timedelta(days=30)
+            investment.verified_by = request.user
+            investment.verified_at = timezone.now()
+            investment.save()
+            updated += 1
+        
+        self.message_user(request, f"{updated} task investment(s) verified and activated.")
+    verify_investments.short_description = 'Verify selected task investments'
 
-    def completion_proof_preview(self, obj):
-        if obj.completion_proof:
-            return format_html(
-                '<a href="{}" target="_blank">'
-                '<img src="{}" width="80" height="60" style="object-fit:cover;border-radius:4px"/>'
-                '</a>',
-                obj.completion_proof.url,
-                obj.completion_proof.url,
-            )
-        return '—'
-    completion_proof_preview.short_description = 'Completion Proof'
+    def mark_completed(self, request, queryset):
+        """Mark active investments as completed"""
+        updated = 0
+        for investment in queryset.filter(status='active'):
+            investment.status = 'completed'
+            investment.completed_date = timezone.now()
+            investment.save()
+            updated += 1
+        
+        self.message_user(request, f"{updated} task investment(s) marked as completed.")
+    mark_completed.short_description = 'Mark selected as completed'
 
-    # ← FIX: was filtering 'pending' but status is 'pending_review'
-    def approve_payment(self, request, queryset):
-        """Approve payment — move from pending_review to in_progress"""
-        updated = queryset.filter(status='pending_review').update(status='in_progress')
-        self.message_user(request, f"{updated} payment(s) approved. Users can now participate.")
-    approve_payment.short_description = 'Approve payment → set In Progress'
-
-    def approve_completion(self, request, queryset):
-        """Approve completion — move from pending_review to completed and credit reward"""
-        for ut in queryset.filter(status='pending_review'):
-            ut.status = 'completed'
-            ut.completed_at = timezone.now()
-            ut.save()
-
-            Transaction.objects.create(
-                user=ut.user,
-                transaction_type='bonus',
-                amount=ut.reward_amount,
-                status='completed',
-                reference=f"TASK_{ut.id}_{uuid.uuid4().hex[:8]}",
-                description=f"{ut.task.title} reward ({ut.tier})"
-            )
-        self.message_user(request, "Tasks completed and rewards credited.")
-    approve_completion.short_description = 'Approve completion → credit reward'
-
-    def reject_tasks(self, request, queryset):
-        queryset.update(status='failed')
-        self.message_user(request, "Tasks rejected.")
-    reject_tasks.short_description = 'Reject selected tasks'
+    def reject_investments(self, request, queryset):
+        """Reject pending investments"""
+        updated = queryset.filter(status='pending').update(status='cancelled')
+        self.message_user(request, f"{updated} task investment(s) rejected.")
+    reject_investments.short_description = 'Reject selected task investments'

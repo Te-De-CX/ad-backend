@@ -1,44 +1,36 @@
 # investments/serializers.py
 from rest_framework import serializers
-from .models import InvestmentPlan, Investment, Transaction, InvestmentAccess
+from .models import InvestmentPlan, UserInvestment, InvestmentTransaction
+
 
 class InvestmentPlanSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvestmentPlan
         fields = '__all__'
 
-class InvestmentSerializer(serializers.ModelSerializer):
+
+class UserInvestmentSerializer(serializers.ModelSerializer):
     plan_name = serializers.ReadOnlyField(source='plan.name')
+    plan_description = serializers.ReadOnlyField(source='plan.description')
     user_email = serializers.ReadOnlyField(source='user.email')
+    days_remaining = serializers.ReadOnlyField()
+    progress_percentage = serializers.ReadOnlyField()
     
     class Meta:
-        model = Investment
-        fields = ['id', 'user', 'plan', 'plan_name', 'user_email', 'amount', 
-                  'daily_profit', 'total_profit', 'status', 'start_date', 
-                  'end_date', 'created_at']
-        read_only_fields = ['id', 'user', 'daily_profit', 'total_profit', 
-                           'status', 'start_date', 'end_date', 'created_at']
-
-class TransactionSerializer(serializers.ModelSerializer):
-    user_email = serializers.ReadOnlyField(source='user.email')
-    
-    class Meta:
-        model = Transaction
-        fields = '__all__'
-        read_only_fields = ['id', 'user', 'reference', 'created_at']
-
-class InvestmentAccessSerializer(serializers.ModelSerializer):
-    user_email = serializers.ReadOnlyField(source='user.email')
-    user_username = serializers.ReadOnlyField(source='user.username')
-    plan_name = serializers.ReadOnlyField(source='investment.plan.name')
-    investment_amount = serializers.ReadOnlyField(source='investment.amount')
-    
-    class Meta:
-        model = InvestmentAccess
+        model = UserInvestment
         fields = [
-            'id', 'user', 'user_email', 'user_username', 'investment',
-            'plan_name', 'investment_amount', 'is_approved', 'approved_by',
-            'approved_at', 'payment_proof', 'payment_reference', 'admin_notes',
-            'created_at', 'updated_at'
+            'id', 'user', 'user_email', 'plan', 'plan_name', 'plan_description',
+            'amount', 'status', 'admin_notes', 'start_date', 'end_date', 
+            'completed_date', 'created_at', 'updated_at', 'expected_return_amount',
+            'daily_profit', 'total_profit', 'days_remaining', 'progress_percentage'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'approved_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+
+
+class InvestmentTransactionSerializer(serializers.ModelSerializer):
+    user_email = serializers.ReadOnlyField(source='user_investment.user.email', default='')
+    investment_plan = serializers.ReadOnlyField(source='user_investment.plan.name', default='')
+    
+    class Meta:
+        model = InvestmentTransaction
+        fields = '__all__'

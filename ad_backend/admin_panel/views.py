@@ -1,42 +1,178 @@
-# admin_panel/views.py (add these lines at the beginning of each ViewSet)
+# admin_panel/views.py
 from rest_framework import viewsets, status, generics, permissions
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from django.db.models import Sum, Count, Q
 from django.utils import timezone
 from accounts.models import User, ActivityLog, UserProfile
-from investments.models import Investment, Transaction
-from tasks.models import Task, UserTask
+from investments.models import InvestmentPlan, UserInvestment, InvestmentTransaction
+from tasks.models import Task, UserTaskInvestment  # Changed from UserTask
 from .models import AdminAction, SystemSettings
 from .serializers import (
-    UserManagementSerializer, InvestmentManagementSerializer, 
-    TaskManagementSerializer, TransactionSerializer, AdminActionSerializer,
-    SystemSettingsSerializer, DashboardStatsSerializer, ChallengeParticipantSerializer
+    UserManagementSerializer, UserInvestmentSerializer, InvestmentPlanSerializer, 
+    TaskManagementSerializer, AdminActionSerializer, SystemSettingsSerializer,
+    DashboardStatsSerializer, ChallengeParticipantSerializer, InvestmentTransactionSerializer,
+    UserTaskInvestmentSerializer  # Added this import
 )
 from .permissions import IsAdminUser
 
-# In admin_panel/views.py, update the AdminDashboardView:
+
+class AdminTaskInvestmentViewSet(viewsets.ModelViewSet):
+    """Admin view for managing user task investments"""
+    permission_classes = [IsAdminUser]
+    serializer_class = UserTaskInvestmentSerializer
+    queryset = UserTaskInvestment.objects.all().order_by('-created_at')
+    
+    @action(detail=True, methods=['post'])
+    def verify(self, request, pk=None):
+        """Verify a pending task investment and start countdown"""
+        investment = self.get_object()
+        
+        if investment.status != 'pending':
+            return Response({'error': 'Investment already processed'}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        investment.status = 'active'
+        investment.admin_notes = request.data.get('admin_notes', 'Investment verified')
+        investment.save()
+        
+        AdminAction.objects.create(
+            admin=request.user,
+            action_type="Verify Task Investment",
+            target_user=investment.user,
+            details=f"Verified {investment.task.title} ({investment.tier}) - ${investment.amount}"
+        )
+        
+        return Response({
+            'status': 'activated',
+            'message': f'Investment verified! 30-day countdown started for {investment.task.title}.',
+            'end_date': investment.end_date
+        })
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject a pending task investment"""
+        investment = self.get_object()
+        investment.status = 'cancelled'
+        investment.admin_notes = request.data.get('reason', 'Investment rejected')
+        investment.save()
+        return Response({'status': 'rejected'})
+    
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        """Mark an active task investment as completed"""
+        investment = self.get_object()
+        
+        if investment.status != 'active':
+            return Response({'error': 'Only active investments can be completed'},
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        investment.status = 'completed'
+        investment.completed_date = timezone.now()
+        investment.save()
+        
+        return Response({
+            'status': 'completed',
+            'total_return': investment.reward_amount,
+            'profit': investment.profit
+        })
+
+
+class AdminInvestmentManagementViewSet(viewsets.ModelViewSet):
+    """Admin view for managing user investments"""
+    permission_classes = [IsAdminUser]
+    serializer_class = UserInvestmentSerializer
+    queryset = UserInvestment.objects.all().order_by('-created_at')
+    
+    @action(detail=True, methods=['post'])
+    def verify_investment(self, request, pk=None):
+        """Admin verifies the investment and starts the countdown"""
+        investment = self.get_object()
+        
+        if investment.status != 'pending':
+            return Response({'error': 'Investment already processed'}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        # Activate the investment
+        investment.status = 'active'
+        investment.verified_by = request.user
+        investment.verified_at = timezone.now()
+        investment.admin_notes = request.data.get('admin_notes', 'Investment verified')
+        investment.save()
+        
+        # Log the action
+        AdminAction.objects.create(
+            admin=request.user,
+            action_type="Verify Investment",
+            target_user=investment.user,
+            details=f"Verified investment of ${investment.amount} in {investment.plan.name}"
+        )
+        
+        return Response({
+            'status': 'activated',
+            'message': 'Investment verified! 30-day countdown started.',
+            'end_date': investment.end_date
+        })
+    
+    @action(detail=True, methods=['post'])
+    def reject_investment(self, request, pk=None):
+        """Admin rejects the investment"""
+        investment = self.get_object()
+        investment.status = 'cancelled'
+        investment.admin_notes = request.data.get('reason', 'Investment rejected')
+        investment.save()
+        
+        return Response({'status': 'rejected', 'message': 'Investment rejected'})
+    
+    @action(detail=True, methods=['post'])
+    def mark_completed(self, request, pk=None):
+        """Admin marks investment as completed"""
+        investment = self.get_object()
+        
+        if investment.status != 'active':
+            return Response({'error': 'Only active investments can be completed'},
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        investment.status = 'completed'
+        investment.completed_date = timezone.now()
+        investment.total_profit = investment.expected_return_amount - investment.amount
+        investment.save()
+        
+        return Response({
+            'status': 'completed',
+            'total_return': investment.expected_return_amount,
+            'message': 'Investment completed. User can now withdraw.'
+        })
+
 
 class AdminDashboardView(generics.GenericAPIView):
     permission_classes = [IsAdminUser]
-    serializer_class = DashboardStatsSerializer  # Add this line
+    serializer_class = DashboardStatsSerializer
     
     def get(self, request):
         total_users = User.objects.count()
-        active_subscriptions = User.objects.filter(is_subscribed=True).count()
-        total_investments = Investment.objects.filter(status='active').aggregate(total=Sum('amount'))['total'] or 0
-        total_tasks_completed = UserTask.objects.filter(status='completed').count()
-        pending_transactions = Transaction.objects.filter(status='pending').count()
+        active_users = User.objects.filter(is_active=True).count()
+        inactive_users = User.objects.filter(is_active=False).count()
+        subscribed_users = User.objects.filter(is_subscribed=True).count()
+        active_investments = UserInvestment.objects.filter(status='active').count()
+        total_volume = UserInvestment.objects.filter(status='active').aggregate(total=Sum('amount'))['total'] or 0
+        completed_tasks = UserTaskInvestment.objects.filter(status='completed').count()  # Changed from UserTask
+        pending_approvals = UserInvestment.objects.filter(status='payment_review').count()
+        challenge_participants = UserProfile.objects.exclude(challenge_status='pending').exclude(full_name__isnull=True).count()
         
         recent_users = User.objects.order_by('-created_at')[:10]
         recent_activities = ActivityLog.objects.order_by('-created_at')[:20]
         
         stats = {
             'total_users': total_users,
-            'active_subscriptions': active_subscriptions,
-            'total_investments': total_investments,
-            'total_tasks_completed': total_tasks_completed,
-            'pending_transactions': pending_transactions,
+            'active_users': active_users,
+            'inactive_users': inactive_users,
+            'subscribed_users': subscribed_users,
+            'active_investments': active_investments,
+            'total_volume': total_volume,
+            'completed_tasks': completed_tasks,
+            'pending_approvals': pending_approvals,
+            'challenge_participants': challenge_participants,
             'recent_users': UserManagementSerializer(recent_users, many=True).data,
             'recent_activities': list(recent_activities.values('user__email', 'action', 'created_at'))
         }
@@ -44,6 +180,7 @@ class AdminDashboardView(generics.GenericAPIView):
         serializer = self.get_serializer(data=stats)
         serializer.is_valid(raise_exception=True)
         return Response(serializer.data)
+
 
 class AdminUserManagementViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
@@ -100,84 +237,108 @@ class AdminUserManagementViewSet(viewsets.ModelViewSet):
         
         return Response({'status': 'deleted'})
 
-class AdminInvestmentViewSet(viewsets.ModelViewSet):
-    queryset = Investment.objects.all()
-    serializer_class = InvestmentManagementSerializer
+
+class AdminInvestmentPlanViewSet(viewsets.ModelViewSet):
+    """Admin view for managing investment plans"""
     permission_classes = [IsAdminUser]
+    serializer_class = InvestmentPlanSerializer
+    queryset = InvestmentPlan.objects.all().order_by('-created_at')
+
+
+
+class AdminUserInvestmentViewSet(viewsets.ModelViewSet):
+    """Admin view for managing user investments"""
+    permission_classes = [IsAdminUser]
+    serializer_class = UserInvestmentSerializer
+    queryset = UserInvestment.objects.all().order_by('-created_at')
     
     @action(detail=True, methods=['post'])
-    def approve_investment(self, request, pk=None):
+    def verify(self, request, pk=None):
+        """Verify a pending investment and start countdown"""
         investment = self.get_object()
+        
+        if investment.status != 'pending':
+            return Response({'error': 'Investment already processed'}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        
         investment.status = 'active'
-        investment.start_date = timezone.now()
-        investment.end_date = timezone.now() + timezone.timedelta(days=investment.plan.duration_days)
+        investment.admin_notes = request.data.get('admin_notes', 'Investment verified')
+        investment.save()
+        
+        # Create admin action log
+        AdminAction.objects.create(
+            admin=request.user,
+            action_type="Verify Investment",
+            target_user=investment.user,
+            details=f"Verified investment of ${investment.amount} in {investment.plan.name}"
+        )
+        
+        return Response({
+            'status': 'activated',
+            'message': f'Investment verified! {investment.plan.duration_days}-day countdown started.',
+            'end_date': investment.end_date
+        })
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """Reject a pending investment"""
+        investment = self.get_object()
+        
+        if investment.status != 'pending':
+            return Response({'error': 'Investment already processed'}, 
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        investment.status = 'cancelled'
+        investment.admin_notes = request.data.get('reason', 'Investment rejected')
         investment.save()
         
         AdminAction.objects.create(
             admin=request.user,
-            action_type="Approve Investment",
+            action_type="Reject Investment",
             target_user=investment.user,
-            details=f"Approved investment of ${investment.amount} in {investment.plan.name}"
+            details=f"Rejected investment of ${investment.amount}. Reason: {investment.admin_notes}"
         )
         
-        return Response({'status': 'approved'})
+        return Response({'status': 'rejected', 'message': 'Investment rejected'})
+    
+    @action(detail=True, methods=['post'])
+    def complete(self, request, pk=None):
+        """Mark an active investment as completed"""
+        investment = self.get_object()
+        
+        if investment.status != 'active':
+            return Response({'error': 'Only active investments can be completed'},
+                          status=status.HTTP_400_BAD_REQUEST)
+        
+        investment.status = 'completed'
+        investment.completed_date = timezone.now()
+        investment.total_profit = investment.expected_return_amount - investment.amount
+        investment.save()
+        
+        AdminAction.objects.create(
+            admin=request.user,
+            action_type="Complete Investment",
+            target_user=investment.user,
+            details=f"Marked investment as completed. Total return: ${investment.expected_return_amount}"
+        )
+        
+        return Response({
+            'status': 'completed',
+            'total_return': investment.expected_return_amount,
+            'message': 'Investment marked as completed.'
+        })
 
 class AdminTaskViewSet(viewsets.ModelViewSet):
     queryset = Task.objects.all()
     serializer_class = TaskManagementSerializer
     permission_classes = [IsAdminUser]
-    
-    @action(detail=False, methods=['post'])
-    def create_task(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        task = serializer.save()
-        
-        AdminAction.objects.create(
-            admin=request.user,
-            action_type="Create Task",
-            details=f"Created task: {task.title}"
-        )
-        
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    
-    @action(detail=True, methods=['post'])
-    def assign_task_to_user(self, request, pk=None):
-        task = self.get_object()
-        user_id = request.data.get('user_id')
-        user = User.objects.get(id=user_id)
-        
-        user_task, created = UserTask.objects.get_or_create(user=user, task=task)
-        
-        AdminAction.objects.create(
-            admin=request.user,
-            action_type="Assign Task",
-            target_user=user,
-            details=f"Assigned task: {task.title}"
-        )
-        
-        return Response({'status': 'assigned', 'created': created})
+
 
 class AdminTransactionViewSet(viewsets.ModelViewSet):
-    queryset = Transaction.objects.all()
-    serializer_class = TransactionSerializer
+    queryset = InvestmentTransaction.objects.all().order_by('-created_at')
+    serializer_class = InvestmentTransactionSerializer
     permission_classes = [IsAdminUser]
-    
-    @action(detail=True, methods=['post'])
-    def approve_transaction(self, request, pk=None):
-        transaction = self.get_object()
-        transaction.status = 'completed'
-        transaction.admin_notes = request.data.get('notes', '')
-        transaction.save()
-        
-        AdminAction.objects.create(
-            admin=request.user,
-            action_type="Approve Transaction",
-            target_user=transaction.user,
-            details=f"Approved {transaction.transaction_type} of ${transaction.amount}"
-        )
-        
-        return Response({'status': 'approved'})
+
 
 class SystemSettingsViewSet(viewsets.ModelViewSet):
     queryset = SystemSettings.objects.all()
@@ -232,6 +393,13 @@ class AdminChallengeViewSet(viewsets.ReadOnlyModelViewSet):
             
             profile.save()
             
+            AdminAction.objects.create(
+                admin=request.user,
+                action_type="Approve Challenge Fee",
+                target_user=profile.user,
+                details=f"Approved {fee_type} fee for challenge participant"
+            )
+            
             return Response({
                 'message': message,
                 'status': 'success'
@@ -267,6 +435,13 @@ class AdminChallengeViewSet(viewsets.ReadOnlyModelViewSet):
                 profile.total_prize = total_prize
             
             profile.save()
+            
+            AdminAction.objects.create(
+                admin=request.user,
+                action_type="Update Challenge Status",
+                target_user=profile.user,
+                details=f"Updated challenge status to {new_status} with prize ${total_prize}"
+            )
             
             return Response({
                 'message': f'Challenge status updated to {new_status}',

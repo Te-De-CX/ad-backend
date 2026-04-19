@@ -1,24 +1,28 @@
 # tasks/serializers.py
 from rest_framework import serializers
-from .models import Task, UserTask
+from .models import Task, UserTaskInvestment
+
 
 class TaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = '__all__'
 
-class UserTaskSerializer(serializers.ModelSerializer):
-    task_title = serializers.ReadOnlyField()
-    task_description = serializers.ReadOnlyField()
-    task_video_url = serializers.ReadOnlyField()
-    reward_amount = serializers.ReadOnlyField()
+
+class UserTaskInvestmentSerializer(serializers.ModelSerializer):
+    task_title = serializers.ReadOnlyField(source='task.title')
+    task_description = serializers.ReadOnlyField(source='task.description')
     user_email = serializers.ReadOnlyField(source='user.email')
+    days_remaining = serializers.ReadOnlyField()
+    progress_percentage = serializers.ReadOnlyField()
+    profit = serializers.ReadOnlyField()
     
     class Meta:
-        model = UserTask
+        model = UserTaskInvestment
         fields = [
-            'id', 'user', 'task', 'tier', 'status', 'payment_proof', 'completion_proof',
-            'admin_notes', 'started_at', 'completed_at', 'task_title', 'task_description',
-            'task_video_url', 'reward_amount', 'user_email'
+            'id', 'user', 'user_email', 'task', 'task_title', 'task_description',
+            'tier', 'amount', 'reward_amount', 'status', 'admin_notes',
+            'start_date', 'end_date', 'completed_date', 'created_at', 'updated_at',
+            'days_remaining', 'progress_percentage', 'profit'
         ]
-        read_only_fields = ['id', 'user', 'started_at', 'completed_at']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
